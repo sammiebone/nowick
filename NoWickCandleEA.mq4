@@ -10,9 +10,12 @@
 
 //--- input parameters
 input int      SMAPeriod   = 50;      // SMA Period
-input double   Lots        = 0.01;    // Lots size
-input int      StopLoss    = 50;      // Stop Loss in pips
-input int      TakeProfit  = 100;     // Take Profit in pips
+input double   Lots        = 1.0;     // Lots size
+input int      StopLoss    = 100;     // Stop Loss in pips
+input int      TakeProfit1 = 50;      // Take Profit 1 in pips
+input int      TakeProfit2 = 100;     // Take Profit 2 in pips
+input int      TakeProfit3 = 150;     // Take Profit 3 in pips
+input int      BreakevenPips = 10;    // Pips to add for breakeven SL
 input int      MagicNumber = 12345;   // Magic Number
 
 //+------------------------------------------------------------------+
@@ -27,9 +30,26 @@ int OnInit()
       Print("Error: StopLoss value is too small. Please set a value greater than ", stopLevel);
       return(INIT_FAILED);
    }
-   if(TakeProfit > 0 && TakeProfit < stopLevel)
+   if(TakeProfit1 > 0 && TakeProfit1 < stopLevel)
    {
-      Print("Error: TakeProfit value is too small. Please set a value greater than ", stopLevel);
+      Print("Error: TakeProfit1 value is too small. Please set a value greater than ", stopLevel);
+      return(INIT_FAILED);
+   }
+   if(TakeProfit2 > 0 && TakeProfit2 < stopLevel)
+   {
+      Print("Error: TakeProfit2 value is too small. Please set a value greater than ", stopLevel);
+      return(INIT_FAILED);
+   }
+   if(TakeProfit3 > 0 && TakeProfit3 < stopLevel)
+   {
+      Print("Error: TakeProfit3 value is too small. Please set a value greater than ", stopLevel);
+      return(INIT_FAILED);
+   }
+
+   //--- Check if lot size is valid for partial closing
+   if(Lots < 0.03)
+   {
+      Print("Error: Lots size must be at least 0.03 for the partial close logic to work.");
       return(INIT_FAILED);
    }
 
@@ -42,24 +62,40 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   //--- Cleanup code can be placed here
+   //--- Cleanup global variables on deinitialization
+   string prefix = "NWEA_State_";
+   for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
+   {
+      string gv_name = GlobalVariableName(i);
+      if(StringFind(gv_name, prefix, 0) == 0)
+      {
+         GlobalVariableDel(gv_name);
+      }
+   }
 }
 
-// Forward declaration
+// Forward declarations
 bool DoesOrderExist();
+void ManageOpenTrades();
 
 //+------------------------------------------------------------------+
 //| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   //--- Run only once per new bar to avoid duplicate trades
+   //--- Manage existing trades on every tick
+   if(OrdersTotal() > 0)
+   {
+      ManageOpenTrades();
+   }
+
+   //--- Look for new trades only on a new bar
    static datetime lastBarTime = 0;
    if(lastBarTime == Time[0])
       return;
    lastBarTime = Time[0];
 
-   //--- Do not trade if an order for this EA already exists on the current symbol
+   //--- Do not open new trade if one already exists for this EA
    if(DoesOrderExist())
       return;
 
@@ -84,7 +120,7 @@ void OnTick()
          //--- Place Sell Limit Order at the top of the candle
          double price = NormalizeDouble(High[1], _Digits);
          double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
-         double tp = NormalizeDouble(price - TakeProfit * _Point, _Digits);
+         double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
          OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, "No Wick Sell", MagicNumber, 0, clrRed);
       }
    }
@@ -101,7 +137,7 @@ void OnTick()
          //--- Place Buy Limit Order at the bottom of the candle
          double price = NormalizeDouble(Low[1], _Digits);
          double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
-         double tp = NormalizeDouble(price + TakeProfit * _Point, _Digits);
+         double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
          OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, "No Wick Buy", MagicNumber, 0, clrBlue);
       }
    }
@@ -124,5 +160,99 @@ bool DoesOrderExist()
       }
    }
    return(false);
+}
+//+------------------------------------------------------------------+
+
+//+------------------------------------------------------------------+
+//| Manage Open Trades                                               |
+//+------------------------------------------------------------------+
+void ManageOpenTrades()
+{
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
+         continue;
+
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber)
+         continue;
+
+      int ticket = OrderTicket();
+      // GlobalVariableGet returns 0.0 if the variable does not exist. We'll treat 0 or 1 as Stage 1.
+      int stage = (int)GlobalVariableGet("NWEA_State_" + ticket);
+      if(stage == 0) stage = 1;
+
+      // --- Stage 1: Check for TP1 and move to Breakeven ---
+      if(stage == 1)
+      {
+         bool tp1_hit = false;
+         if(OrderType() == OP_BUY && Bid >= OrderOpenPrice() + TakeProfit1 * _Point)
+            tp1_hit = true;
+         if(OrderType() == OP_SELL && Ask <= OrderOpenPrice() - TakeProfit1 * _Point)
+            tp1_hit = true;
+
+         if(tp1_hit)
+         {
+            // 1. Partial close (one third)
+            double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
+            if(lotsToClose > 0 && OrderLots() > lotsToClose)
+            {
+               if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3))
+                  Print("Error closing partial order for TP1: ", GetLastError());
+            }
+
+            // Re-select order to get updated info
+            if(!OrderSelect(ticket, SELECT_BY_TICKET)) continue;
+
+            // 2. Move SL to Breakeven
+            double newSL = 0;
+            if(OrderType() == OP_BUY)
+               newSL = NormalizeDouble(OrderOpenPrice() + BreakevenPips * _Point, _Digits);
+            else // OP_SELL
+               newSL = NormalizeDouble(OrderOpenPrice() - BreakevenPips * _Point, _Digits);
+
+            // 3. Modify the Stop Loss
+            if(!OrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0))
+               Print("Error modifying SL for breakeven: ", GetLastError());
+
+            // 4. Update state to Stage 2
+            GlobalVariableSet("NWEA_State_" + ticket, 2);
+
+            // Exit loop for this tick as we have modified the trade
+            return;
+         }
+      }
+
+      // --- Stage 2: Check for TP2 ---
+      if(stage == 2)
+      {
+         bool tp2_hit = false;
+         if(OrderType() == OP_BUY && Bid >= OrderOpenPrice() + TakeProfit2 * _Point)
+            tp2_hit = true;
+         if(OrderType() == OP_SELL && Ask <= OrderOpenPrice() - TakeProfit2 * _Point)
+            tp2_hit = true;
+
+         if(tp2_hit)
+         {
+            // Partial close (one third of original lots)
+            double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
+            if(lotsToClose > 0 && OrderLots() > lotsToClose)
+            {
+               if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3))
+                  Print("Error closing partial order for TP2: ", GetLastError());
+            }
+            else // Close the rest of the position
+            {
+               if(!OrderClose(ticket, OrderLots(), OrderClosePrice(), 3))
+                  Print("Error closing remaining order for TP2: ", GetLastError());
+            }
+
+            // Update state to Stage 3 (final stage)
+            GlobalVariableSet("NWEA_State_" + ticket, 3);
+
+            // Exit loop for this tick
+            return;
+         }
+      }
+   }
 }
 //+------------------------------------------------------------------+
