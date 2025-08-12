@@ -121,7 +121,11 @@ void OnTick()
          double price = NormalizeDouble(High[1], _Digits);
          double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
-         OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, "No Wick Sell", MagicNumber, 0, clrRed);
+         int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, "No Wick Sell", MagicNumber, 0, clrRed);
+         if(ticket < 0)
+         {
+            Print("Error sending sell limit order: ", GetLastError());
+         }
       }
    }
 
@@ -138,7 +142,11 @@ void OnTick()
          double price = NormalizeDouble(Low[1], _Digits);
          double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
-         OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, "No Wick Buy", MagicNumber, 0, clrBlue);
+         int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, "No Wick Buy", MagicNumber, 0, clrBlue);
+         if(ticket < 0)
+         {
+            Print("Error sending buy limit order: ", GetLastError());
+         }
       }
    }
 }
@@ -177,8 +185,9 @@ void ManageOpenTrades()
          continue;
 
       int ticket = OrderTicket();
+      string gv_name = "NWEA_State_" + (string)ticket;
       // GlobalVariableGet returns 0.0 if the variable does not exist. We'll treat 0 or 1 as Stage 1.
-      int stage = (int)GlobalVariableGet("NWEA_State_" + ticket);
+      int stage = (int)GlobalVariableGet(gv_name);
       if(stage == 0) stage = 1;
 
       // --- Stage 1: Check for TP1 and move to Breakeven ---
@@ -215,7 +224,7 @@ void ManageOpenTrades()
                Print("Error modifying SL for breakeven: ", GetLastError());
 
             // 4. Update state to Stage 2
-            GlobalVariableSet("NWEA_State_" + ticket, 2);
+            GlobalVariableSet(gv_name, 2);
 
             // Exit loop for this tick as we have modified the trade
             return;
@@ -247,7 +256,7 @@ void ManageOpenTrades()
             }
 
             // Update state to Stage 3 (final stage)
-            GlobalVariableSet("NWEA_State_" + ticket, 3);
+            GlobalVariableSet(gv_name, 3);
 
             // Exit loop for this tick
             return;
