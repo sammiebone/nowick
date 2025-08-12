@@ -132,8 +132,24 @@ void OnTick()
          double tp = price - TakeProfit3 * _Point;
 
          Print("MQL5: Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         m_trade.request.comment = _Symbol + " No Wick Sell " + EnumToString(_Period);
-         m_trade.SellLimit(Lots, price, _Symbol, sl, tp);
+
+         MqlTradeRequest request={0};
+         MqlTradeResult  result={0};
+
+         request.action   = TRADE_ACTION_PENDING;
+         request.symbol   = _Symbol;
+         request.volume   = Lots;
+         request.type     = ORDER_TYPE_SELL_LIMIT;
+         request.price    = price;
+         request.sl       = sl;
+         request.tp       = tp;
+         request.comment  = _Symbol + " No Wick Sell " + EnumToString(_Period);
+         request.magic    = MagicNumber;
+
+         if(!m_trade.OrderSend(request, result))
+         {
+            Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment());
+         }
       }
    }
 
@@ -152,8 +168,24 @@ void OnTick()
          double tp = price + TakeProfit3 * _Point;
 
          Print("MQL5: Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         m_trade.request.comment = _Symbol + " No Wick Buy " + EnumToString(_Period);
-         m_trade.BuyLimit(Lots, price, _Symbol, sl, tp);
+
+         MqlTradeRequest request={0};
+         MqlTradeResult  result={0};
+
+         request.action   = TRADE_ACTION_PENDING;
+         request.symbol   = _Symbol;
+         request.volume   = Lots;
+         request.type     = ORDER_TYPE_BUY_LIMIT;
+         request.price    = price;
+         request.sl       = sl;
+         request.tp       = tp;
+         request.comment  = _Symbol + " No Wick Buy " + EnumToString(_Period);
+         request.magic    = MagicNumber;
+
+         if(!m_trade.OrderSend(request, result))
+         {
+            Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment());
+         }
       }
    }
 }
