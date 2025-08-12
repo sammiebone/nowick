@@ -32,14 +32,15 @@ int OnInit()
    m_trade.SetMarginMode(); // Use the current symbol's margin mode
 
    //--- Check StopLevels
-   if(StopLoss * _Point < _symbol.stops_level() * _Point)
-      Print("StopLoss value is too small.");
-   if(TakeProfit1 * _Point < _symbol.stops_level() * _Point)
-      Print("TakeProfit1 value is too small.");
-   if(TakeProfit2 * _Point < _symbol.stops_level() * _Point)
-      Print("TakeProfit2 value is too small.");
-   if(TakeProfit3 * _Point < _symbol.stops_level() * _Point)
-      Print("TakeProfit3 value is too small.");
+   int stops_level = (int)SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   if(StopLoss < stops_level)
+      Print("StopLoss value of ", StopLoss, " is too small. Minimum is ", stops_level);
+   if(TakeProfit1 < stops_level)
+      Print("TakeProfit1 value of ", TakeProfit1, " is too small. Minimum is ", stops_level);
+   if(TakeProfit2 < stops_level)
+      Print("TakeProfit2 value of ", TakeProfit2, " is too small. Minimum is ", stops_level);
+   if(TakeProfit3 < stops_level)
+      Print("TakeProfit3 value of ", TakeProfit3, " is too small. Minimum is ", stops_level);
 
    //--- Check if lot size is valid for partial closing
    if(Lots < 0.03)
@@ -90,10 +91,7 @@ void OnTick()
       Print("Error copying rates, not enough bars.");
       return;
    }
-   // By default, MQL5 gives newest bar at index 0. We want oldest first.
-   ArraySetAsSeries(rates, true);
-   // Now rates[0] is the most recent completed bar (like MQL4's index 1)
-   // and rates[1] is the current, forming bar (like MQL4's index 0)
+   // MQL5 default indexing: rates[0] is the current bar, rates[1] is the previous bar.
 
    //--- Get the current SMA value
    double sma_buffer[1];
@@ -113,23 +111,23 @@ void OnTick()
    double smaValue = sma_buffer[0];
 
    //--- Trend and Candle Logic
-   // Trend is determined by the current price vs the current SMA
-   bool isBearishTrend = rates[1].close < smaValue;
-   bool isBullishTrend = rates[1].close > smaValue;
+   // Trend is determined by the current price (rates[0].close) vs the current SMA
+   bool isBearishTrend = rates[0].close < smaValue;
+   bool isBullishTrend = rates[0].close > smaValue;
 
-   // We analyze the most recently completed bar: rates[0]
+   // We analyze the most recently completed bar: rates[1]
 
    // Bearish case:
    if(isBearishTrend)
    {
-      bool isBearishCandle = rates[0].close < rates[0].open;
-      bool noTopWick = (rates[0].high - rates[0].open) < _Point;
+      bool isBearishCandle = rates[1].close < rates[1].open;
+      bool noTopWick = (rates[1].high - rates[1].open) < _Point;
       if(isBearishCandle && noTopWick)
       {
          Print("MQL5: Bearish trend detected.");
-         Print("MQL5: Bearish no-wick candle found. Time: ", rates[0].time);
+         Print("MQL5: Bearish no-wick candle found. Time: ", rates[1].time);
 
-         double price = rates[0].high;
+         double price = rates[1].high;
          double sl = price + StopLoss * _Point;
          double tp = price - TakeProfit3 * _Point;
 
@@ -141,14 +139,14 @@ void OnTick()
    // Bullish case:
    if(isBullishTrend)
    {
-      bool isBullishCandle = rates[0].close > rates[0].open;
-      bool noBottomWick = (rates[0].open - rates[0].low) < _Point;
+      bool isBullishCandle = rates[1].close > rates[1].open;
+      bool noBottomWick = (rates[1].open - rates[1].low) < _Point;
       if(isBullishCandle && noBottomWick)
       {
          Print("MQL5: Bullish trend detected.");
-         Print("MQL5: Bullish no-wick candle found. Time: ", rates[0].time);
+         Print("MQL5: Bullish no-wick candle found. Time: ", rates[1].time);
 
-         double price = rates[0].low;
+         double price = rates[1].low;
          double sl = price - StopLoss * _Point;
          double tp = price + TakeProfit3 * _Point;
 
