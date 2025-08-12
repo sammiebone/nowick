@@ -133,8 +133,10 @@ void OnTick()
 
          Print("MQL5: Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
 
-         MqlTradeRequest request={0};
-         MqlTradeResult  result={0};
+         MqlTradeRequest request;
+         MqlTradeResult  result;
+         ZeroMemory(request);
+         ZeroMemory(result);
 
          request.action   = TRADE_ACTION_PENDING;
          request.symbol   = _Symbol;
@@ -169,8 +171,10 @@ void OnTick()
 
          Print("MQL5: Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
 
-         MqlTradeRequest request={0};
-         MqlTradeResult  result={0};
+         MqlTradeRequest request;
+         MqlTradeResult  result;
+         ZeroMemory(request);
+         ZeroMemory(result);
 
          request.action   = TRADE_ACTION_PENDING;
          request.symbol   = _Symbol;
