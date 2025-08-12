@@ -132,8 +132,7 @@ void OnTick()
          double tp = price - TakeProfit3 * _Point;
 
          Print("MQL5: Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         string comment = _Symbol + " No Wick Sell " + EnumToString(_Period);
-         m_trade.SetOrderComment(comment);
+         m_trade.request.comment = _Symbol + " No Wick Sell " + EnumToString(_Period);
          m_trade.SellLimit(Lots, price, _Symbol, sl, tp);
       }
    }
@@ -153,8 +152,7 @@ void OnTick()
          double tp = price + TakeProfit3 * _Point;
 
          Print("MQL5: Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         string comment = _Symbol + " No Wick Buy " + EnumToString(_Period);
-         m_trade.SetOrderComment(comment);
+         m_trade.request.comment = _Symbol + " No Wick Buy " + EnumToString(_Period);
          m_trade.BuyLimit(Lots, price, _Symbol, sl, tp);
       }
    }
