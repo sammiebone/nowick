@@ -124,7 +124,8 @@ void OnTick()
          double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
          Print("Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, "No Wick Sell", MagicNumber, 0, clrRed);
+         string comment = Symbol() + " No Wick Sell " + (string)Period();
+         int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrRed);
          if(ticket < 0)
          {
             Print("Error sending sell limit order: ", GetLastError());
@@ -148,7 +149,8 @@ void OnTick()
          double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
          Print("Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-         int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, "No Wick Buy", MagicNumber, 0, clrBlue);
+         string comment = Symbol() + " No Wick Buy " + (string)Period();
+         int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
          if(ticket < 0)
          {
             Print("Error sending buy limit order: ", GetLastError());
