@@ -117,10 +117,13 @@ void OnTick()
 
       if (isBearishCandle && noTopWick)
       {
+         Print("Bearish trend detected.");
+         Print("Bearish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
          //--- Place Sell Limit Order at the top of the candle
          double price = NormalizeDouble(High[1], _Digits);
          double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
+         Print("Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
          int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, "No Wick Sell", MagicNumber, 0, clrRed);
          if(ticket < 0)
          {
@@ -138,10 +141,13 @@ void OnTick()
 
       if (isBullishCandle && noBottomWick)
       {
+         Print("Bullish trend detected.");
+         Print("Bullish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
          //--- Place Buy Limit Order at the bottom of the candle
          double price = NormalizeDouble(Low[1], _Digits);
          double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
          double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
+         Print("Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
          int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, "No Wick Buy", MagicNumber, 0, clrBlue);
          if(ticket < 0)
          {
@@ -201,10 +207,12 @@ void ManageOpenTrades()
 
          if(tp1_hit)
          {
+            Print("TP1 hit for order #", ticket);
             // 1. Partial close (one third)
             double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
             if(lotsToClose > 0 && OrderLots() > lotsToClose)
             {
+               Print("Closing ", lotsToClose, " lots for order #", ticket);
                if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3))
                   Print("Error closing partial order for TP1: ", GetLastError());
             }
@@ -220,6 +228,7 @@ void ManageOpenTrades()
                newSL = NormalizeDouble(OrderOpenPrice() - BreakevenPips * _Point, _Digits);
 
             // 3. Modify the Stop Loss
+            Print("Moving SL to breakeven for order #", ticket, ". New SL: ", newSL);
             if(!OrderModify(ticket, OrderOpenPrice(), newSL, OrderTakeProfit(), 0))
                Print("Error modifying SL for breakeven: ", GetLastError());
 
@@ -242,15 +251,18 @@ void ManageOpenTrades()
 
          if(tp2_hit)
          {
+            Print("TP2 hit for order #", ticket);
             // Partial close (one third of original lots)
             double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
             if(lotsToClose > 0 && OrderLots() > lotsToClose)
             {
+               Print("Closing ", lotsToClose, " lots for order #", ticket);
                if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3))
                   Print("Error closing partial order for TP2: ", GetLastError());
             }
             else // Close the rest of the position
             {
+               Print("Closing remaining ", OrderLots(), " lots for order #", ticket);
                if(!OrderClose(ticket, OrderLots(), OrderClosePrice(), 3))
                   Print("Error closing remaining order for TP2: ", GetLastError());
             }
