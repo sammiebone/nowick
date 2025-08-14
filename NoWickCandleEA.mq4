@@ -44,7 +44,7 @@ input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
 #define GV_PB_STOP_LOSS   "PB_StopLoss_"   + Symbol()
 #define GV_PB_TAKE_PROFIT "PB_TakeProfit_" + Symbol()
 #define GV_PB_EXPIRY_TIME "PB_ExpiryTime_" + Symbol()
-#define GV_PB_COMMENT     "PB_Comment_"    + Symbol()
+#define GV_PB_PATTERN_TYPE "PB_PatternType_" + Symbol() // New GV for pattern type
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -57,14 +57,8 @@ int OnInit()
    if(TakeProfit1 > 0 && TakeProfit1 < stopLevel) { Print("Error: TakeProfit1 is too small."); return(INIT_FAILED); }
    if(TakeProfit2 > 0 && TakeProfit2 < stopLevel) { Print("Error: TakeProfit2 is too small."); return(INIT_FAILED); }
    if(TakeProfit3 > 0 && TakeProfit3 < stopLevel) { Print("Error: TakeProfit3 is too small."); return(INIT_FAILED); }
-
-   //--- Check if lot size is valid for partial closing
    if(Lots < 0.03) { Print("Error: Lots size must be at least 0.03."); return(INIT_FAILED); }
-
-   //--- Check PullbackPercent
    if(PullbackPercent < 0 || PullbackPercent > 100) { Print("Error: PullbackPercent must be between 0 and 100."); return(INIT_FAILED); }
-
-   //--- Initialization successful
    return(INIT_SUCCEEDED);
 }
 
@@ -73,7 +67,6 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   //--- Cleanup global variables
    string prefix = "NWEA_State_";
    for(int i = GlobalVariablesTotal() - 1; i >= 0; i--)
    {
@@ -88,7 +81,7 @@ bool DoesOrderExist();
 void ManageOpenTrades();
 void LookForNewSignal();
 void CheckPullbackAndEnter();
-void SetPendingPullback(int signalType, double entry, double sl, double tp, string comment);
+void SetPendingPullback(int signalType, double entry, double sl, double tp, int patternCode);
 void ClearPendingPullback();
 
 //+------------------------------------------------------------------+
@@ -139,71 +132,66 @@ void LookForNewSignal()
    bool isClosing = (isBullish && !bottomIsFlat && topIsFlat) || (isBearish && !topIsFlat && bottomIsFlat);
    bool patternFound = (TradeFullMarubozu && isFull) || (TradeOpeningMarubozu && isOpening) || (TradeClosingMarubozu && isClosing);
 
+   int patternCode = 0;
+   if(isFull) patternCode = 1; else if(isOpening) patternCode = 2; else if(isClosing) patternCode = 3;
+
    bool rsiFilterPassed = true;
    if(UseRsiFilter)
    {
       double rsiValue = iRSI(NULL, 0, RsiPeriod, PRICE_CLOSE, 1);
-      if(isBullish || (EnableParadoxStrategy && isBearish)) { if(rsiValue >= RsiOverbought) { rsiFilterPassed = false; Print("Signal ignored: RSI Overbought"); } }
-      else if(isBearish && !EnableParadoxStrategy) { if(rsiValue <= RsiOversold) { rsiFilterPassed = false; Print("Signal ignored: RSI Oversold"); } }
+      if(isBullish || (EnableParadoxStrategy && isBearish)) { if(rsiValue >= RsiOverbought) { rsiFilterPassed = false; } }
+      else if(isBearish && !EnableParadoxStrategy) { if(rsiValue <= RsiOversold) { rsiFilterPassed = false; } }
    }
 
-      //--- MACD Filter ---
-      bool macdFilterPassed = true;
-      if(UseMacdFilter)
-      {
-         double macdMain = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_MAIN, 1);
-         double macdSignal = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_SIGNAL, 1);
-
-         // For any buy signal
-         if(isBullish || (EnableParadoxStrategy && isBearish))
-         {
-            if(macdMain <= macdSignal)
-            {
-               macdFilterPassed = false;
-               Print("Signal ignored: MACD not bullish");
-            }
-         }
-         // For a sell signal
-         else if(isBearish && !EnableParadoxStrategy)
-         {
-            if(macdMain >= macdSignal)
-            {
-               macdFilterPassed = false;
-               Print("Signal ignored: MACD not bearish");
-            }
-         }
-      }
-
-      if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
+   bool macdFilterPassed = true;
+   if(UseMacdFilter)
    {
-      string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
+      double macdMain = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_MAIN, 1);
+      double macdSignal = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_SIGNAL, 1);
+      if(isBullish || (EnableParadoxStrategy && isBearish)) { if(macdMain <= macdSignal) macdFilterPassed = false; }
+      else if(isBearish && !EnableParadoxStrategy) { if(macdMain >= macdSignal) macdFilterPassed = false; }
+   }
+
+   if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
+   {
+      string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
       if(!EnableParadoxStrategy)
       {
+         string comment;
+         int ticket;
          if(isBearish)
          {
             double entry = NormalizeDouble(High[1], _Digits);
             double sl = NormalizeDouble(entry + StopLoss * _Point, _Digits);
             double tp = NormalizeDouble(entry - TakeProfit3 * _Point, _Digits);
-            string comment = Symbol() + " Sell " + patternType + " " + (string)Period();
+            comment = Symbol() + " Sell " + patternType + " " + (string)Period();
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = NormalizeDouble(Close[1] + (Open[1] - Close[1]) * (PullbackPercent/100.0), _Digits);
-               SetPendingPullback(OP_SELL, pullbackEntry, sl, tp, comment);
+               SetPendingPullback(OP_SELL, pullbackEntry, sl, tp, patternCode);
             }
-            else { OrderSend(Symbol(), OP_SELLLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrRed); }
+            else
+            {
+               ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrRed);
+               if(ticket < 0) Print("Error sending sell limit: ", GetLastError());
+            }
          }
          if(isBullish)
          {
             double entry = NormalizeDouble(Low[1], _Digits);
             double sl = NormalizeDouble(entry - StopLoss * _Point, _Digits);
             double tp = NormalizeDouble(entry + TakeProfit3 * _Point, _Digits);
-            string comment = Symbol() + " Buy " + patternType + " " + (string)Period();
+            comment = Symbol() + " Buy " + patternType + " " + (string)Period();
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = NormalizeDouble(Open[1] + (Close[1] - Open[1]) * (PullbackPercent/100.0), _Digits);
-               SetPendingPullback(OP_BUY, pullbackEntry, sl, tp, comment);
+               SetPendingPullback(OP_BUY, pullbackEntry, sl, tp, patternCode);
             }
-            else { OrderSend(Symbol(), OP_BUYLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrBlue); }
+            else
+            {
+               ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+               if(ticket < 0) Print("Error sending buy limit: ", GetLastError());
+            }
          }
       }
       else
@@ -214,21 +202,21 @@ void LookForNewSignal()
             double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
             double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
             string comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
-            OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+            int ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+            if(ticket < 0) Print("Error sending buy stop: ", GetLastError());
          }
       }
    }
 }
 
-void SetPendingPullback(int signalType, double entry, double sl, double tp, string comment)
+void SetPendingPullback(int signalType, double entry, double sl, double tp, int patternCode)
 {
-   Print("Setting pending pullback signal. Type: ", (signalType == OP_BUY ? "BUY" : "SELL"), " Entry: ", entry);
    GlobalVariableSet(GV_PB_SIGNAL_TYPE, signalType);
    GlobalVariableSet(GV_PB_ENTRY_PRICE, entry);
    GlobalVariableSet(GV_PB_STOP_LOSS, sl);
    GlobalVariableSet(GV_PB_TAKE_PROFIT, tp);
    GlobalVariableSet(GV_PB_EXPIRY_TIME, TimeCurrent() + PullbackExpiryBars * Period()*60);
-   GlobalVariableSet(GV_PB_COMMENT, comment);
+   GlobalVariableSet(GV_PB_PATTERN_TYPE, patternCode);
 }
 
 void ClearPendingPullback()
@@ -238,14 +226,13 @@ void ClearPendingPullback()
    GlobalVariableDel(GV_PB_STOP_LOSS);
    GlobalVariableDel(GV_PB_TAKE_PROFIT);
    GlobalVariableDel(GV_PB_EXPIRY_TIME);
-   GlobalVariableDel(GV_PB_COMMENT);
+   GlobalVariableDel(GV_PB_PATTERN_TYPE);
 }
 
 void CheckPullbackAndEnter()
 {
    if(TimeCurrent() > GlobalVariableGet(GV_PB_EXPIRY_TIME))
    {
-      Print("Pullback signal expired.");
       ClearPendingPullback();
       return;
    }
@@ -254,7 +241,12 @@ void CheckPullbackAndEnter()
    double entryPrice = GlobalVariableGet(GV_PB_ENTRY_PRICE);
    double sl = GlobalVariableGet(GV_PB_STOP_LOSS);
    double tp = GlobalVariableGet(GV_PB_TAKE_PROFIT);
-   string comment = GlobalVariableGet(GV_PB_COMMENT);
+   int patternCode = (int)GlobalVariableGet(GV_PB_PATTERN_TYPE);
+   string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
+
+   string comment = "";
+   if(signalType == OP_BUY) comment = Symbol() + " Buy " + patternType + " " + (string)Period();
+   else comment = Symbol() + " Sell " + patternType + " " + (string)Period();
 
    bool entry_hit = false;
    if(signalType == OP_BUY && Ask <= entryPrice) entry_hit = true;
@@ -262,8 +254,8 @@ void CheckPullbackAndEnter()
 
    if(entry_hit)
    {
-      Print("Pullback entry price hit. Placing market order.");
-      OrderSend(Symbol(), signalType, Lots, (signalType == OP_BUY ? Ask : Bid), 3, sl, tp, comment, MagicNumber, 0, (signalType == OP_BUY ? clrBlue : clrRed));
+      int ticket = OrderSend(Symbol(), signalType, Lots, (signalType == OP_BUY ? Ask : Bid), 3, sl, tp, comment, MagicNumber, 0, (signalType == OP_BUY ? clrBlue : clrRed));
+      if(ticket < 0) Print("Error sending pullback market order: ", GetLastError());
       ClearPendingPullback();
    }
 }
@@ -274,10 +266,7 @@ bool DoesOrderExist()
    {
       if(OrderSelect(i, SELECT_BY_POS, MODE_TRADES))
       {
-         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber)
-         {
-            return(true);
-         }
+         if(OrderSymbol() == Symbol() && OrderMagicNumber() == MagicNumber) return(true);
       }
    }
    return(false);
@@ -302,12 +291,8 @@ void ManageOpenTrades()
          if(OrderType() == OP_SELL && Ask <= OrderOpenPrice() - TakeProfit1 * _Point) tp1_hit = true;
          if(tp1_hit)
          {
-            Print("TP1 hit for order #", ticket);
             double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
-            if(lotsToClose > 0 && OrderLots() > lotsToClose)
-            {
-               if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3)) Print("Error closing partial order for TP1: ", GetLastError());
-            }
+            if(lotsToClose > 0 && OrderLots() > lotsToClose) { if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3)) Print("Error closing partial order for TP1: ", GetLastError()); }
             if(!OrderSelect(ticket, SELECT_BY_TICKET)) continue;
             double newSL = 0;
             if(OrderType() == OP_BUY) newSL = NormalizeDouble(OrderOpenPrice() + BreakevenPips * _Point, _Digits);
@@ -325,16 +310,9 @@ void ManageOpenTrades()
          if(OrderType() == OP_SELL && Ask <= OrderOpenPrice() - TakeProfit2 * _Point) tp2_hit = true;
          if(tp2_hit)
          {
-            Print("TP2 hit for order #", ticket);
             double lotsToClose = NormalizeDouble(Lots / 3.0, 2);
-            if(lotsToClose > 0 && OrderLots() > lotsToClose)
-            {
-               if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3)) Print("Error closing partial order for TP2: ", GetLastError());
-            }
-            else
-            {
-               if(!OrderClose(ticket, OrderLots(), OrderClosePrice(), 3)) Print("Error closing remaining order for TP2: ", GetLastError());
-            }
+            if(lotsToClose > 0 && OrderLots() > lotsToClose) { if(!OrderClose(ticket, lotsToClose, OrderClosePrice(), 3)) Print("Error closing partial order for TP2: ", GetLastError()); }
+            else { if(!OrderClose(ticket, OrderLots(), OrderClosePrice(), 3)) Print("Error closing remaining order for TP2: ", GetLastError()); }
             GlobalVariableSet(gv_name, 3);
             return;
          }
