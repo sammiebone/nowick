@@ -32,6 +32,11 @@ input int      RsiOversold          = 30;    // RSI Oversold Level
 input bool     WaitForPullbackEntry = false; // Wait for a pullback before entering
 input double   PullbackPercent      = 50.0;  // Pullback percent (0-100)
 input int      PullbackExpiryBars   = 3;     // Bars to wait for a pullback
+//--- MACD Filter
+input bool     UseMacdFilter        = true;  // Use MACD to filter signals
+input int      MacdFastEma          = 12;    // MACD Fast EMA Period
+input int      MacdSlowEma          = 26;    // MACD Slow EMA Period
+input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
 
 //--- Global Variable Name definitions for Pullback State
 #define GV_PB_SIGNAL_TYPE "PB_SignalType_" + Symbol()
@@ -142,7 +147,34 @@ void LookForNewSignal()
       else if(isBearish && !EnableParadoxStrategy) { if(rsiValue <= RsiOversold) { rsiFilterPassed = false; Print("Signal ignored: RSI Oversold"); } }
    }
 
-   if(patternFound && isVolumeConfirmed && rsiFilterPassed)
+      //--- MACD Filter ---
+      bool macdFilterPassed = true;
+      if(UseMacdFilter)
+      {
+         double macdMain = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_MAIN, 1);
+         double macdSignal = iMACD(NULL, 0, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE, MODE_SIGNAL, 1);
+
+         // For any buy signal
+         if(isBullish || (EnableParadoxStrategy && isBearish))
+         {
+            if(macdMain <= macdSignal)
+            {
+               macdFilterPassed = false;
+               Print("Signal ignored: MACD not bullish");
+            }
+         }
+         // For a sell signal
+         else if(isBearish && !EnableParadoxStrategy)
+         {
+            if(macdMain >= macdSignal)
+            {
+               macdFilterPassed = false;
+               Print("Signal ignored: MACD not bearish");
+            }
+         }
+      }
+
+      if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
    {
       string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
       if(!EnableParadoxStrategy)
