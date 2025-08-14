@@ -105,27 +105,21 @@ void LookForNewSignal()
    double smaValue = iMA(NULL, 0, SMAPeriod, 0, MODE_SMA, PRICE_CLOSE, 0);
    bool isBearishTrend = Close[0] < smaValue;
    bool isBullishTrend = Close[0] > smaValue;
-
    long totalVolume = 0;
    for(int i = 2; i < 22; i++) { totalVolume += iVolume(NULL, 0, i); }
    double avgVolume = totalVolume / 20.0;
    bool isVolumeConfirmed = iVolume(NULL, 0, 1) > avgVolume * VolumeMultiplier;
-
    bool isBearish = Close[1] < Open[1];
    bool isBullish = Close[1] > Open[1];
-
    if(!((isBearish && isBearishTrend) || (isBullish && isBullishTrend))) return;
-
    bool topIsFlat = (isBullish ? (High[1] - Close[1]) < _Point : (High[1] - Open[1]) < _Point);
    bool bottomIsFlat = (isBullish ? (Open[1] - Low[1]) < _Point : (Close[1] - Low[1]) < _Point);
    bool isFull = topIsFlat && bottomIsFlat;
    bool isOpening = (isBullish && bottomIsFlat && !topIsFlat) || (isBearish && topIsFlat && !bottomIsFlat);
    bool isClosing = (isBullish && !bottomIsFlat && topIsFlat) || (isBearish && !topIsFlat && bottomIsFlat);
    bool patternFound = (TradeFullMarubozu && isFull) || (TradeOpeningMarubozu && isOpening) || (TradeClosingMarubozu && isClosing);
-
    int patternCode = 0;
    if(isFull) patternCode = 1; else if(isOpening) patternCode = 2; else if(isClosing) patternCode = 3;
-
    bool rsiFilterPassed = true;
    if(UseRsiFilter)
    {
@@ -133,7 +127,6 @@ void LookForNewSignal()
       if(isBullish || (EnableParadoxStrategy && isBearish)) { if(rsiValue >= RsiOverbought) { rsiFilterPassed = false; } }
       else if(isBearish && !EnableParadoxStrategy) { if(rsiValue <= RsiOversold) { rsiFilterPassed = false; } }
    }
-
    bool macdFilterPassed = true;
    if(UseMacdFilter)
    {
@@ -142,14 +135,13 @@ void LookForNewSignal()
       if(isBullish || (EnableParadoxStrategy && isBearish)) { if(macdMain <= macdSignal) macdFilterPassed = false; }
       else if(isBearish && !EnableParadoxStrategy) { if(macdMain >= macdSignal) macdFilterPassed = false; }
    }
-
    if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
    {
       string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
       int ticket;
+      string comment;
       if(!EnableParadoxStrategy)
       {
-         string comment;
          if(isBearish)
          {
             double entry = NormalizeDouble(High[1], _Digits);
@@ -192,7 +184,7 @@ void LookForNewSignal()
             double price = NormalizeDouble(High[1], _Digits);
             double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
             double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
-            string comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
+            comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
             ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
             if(ticket < 0) Print("Error sending buy stop: ", GetLastError());
          }
@@ -227,22 +219,18 @@ void CheckPullbackAndEnter()
       ClearPendingPullback();
       return;
    }
-
    int signalType = (int)GlobalVariableGet(GV_PB_SIGNAL_TYPE);
    double entryPrice = GlobalVariableGet(GV_PB_ENTRY_PRICE);
    double sl = GlobalVariableGet(GV_PB_STOP_LOSS);
    double tp = GlobalVariableGet(GV_PB_TAKE_PROFIT);
    int patternCode = (int)GlobalVariableGet(GV_PB_PATTERN_TYPE);
    string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
-
    string comment = "";
    if(signalType == OP_BUY) comment = Symbol() + " Buy " + patternType + " " + (string)Period();
    else comment = Symbol() + " Sell " + patternType + " " + (string)Period();
-
    bool entry_hit = false;
    if(signalType == OP_BUY && Ask <= entryPrice) entry_hit = true;
    if(signalType == OP_SELL && Bid >= entryPrice) entry_hit = true;
-
    if(entry_hit)
    {
       int ticket = OrderSend(Symbol(), signalType, Lots, (signalType == OP_BUY ? Ask : Bid), 3, sl, tp, comment, MagicNumber, 0, (signalType == OP_BUY ? clrBlue : clrRed));
@@ -269,12 +257,10 @@ void ManageOpenTrades()
    {
       if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
       if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
-
       int ticket = OrderTicket();
       string gv_name = "NWEA_State_" + (string)ticket;
       int stage = (int)GlobalVariableGet(gv_name);
       if(stage == 0) stage = 1;
-
       if(stage == 1)
       {
          bool tp1_hit = false;
@@ -293,7 +279,6 @@ void ManageOpenTrades()
             return;
          }
       }
-
       if(stage == 2)
       {
          bool tp2_hit = false;

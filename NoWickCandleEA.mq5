@@ -96,24 +96,12 @@ void ClearPendingPullback();
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   if(PositionSelect(_Symbol))
-   {
-      ManageOpenTrades();
-      return;
-   }
-
-   if(GlobalVariableGet(GV_PB_SIGNAL_TYPE) != 0)
-   {
-      CheckPullbackAndEnter();
-      return;
-   }
-
+   if(PositionSelect(_Symbol)) { ManageOpenTrades(); return; }
+   if(GlobalVariableGet(GV_PB_SIGNAL_TYPE) != 0) { CheckPullbackAndEnter(); return; }
    static datetime lastBarTime = 0;
    if(lastBarTime == TimeCurrent()) return;
    lastBarTime = TimeCurrent();
-
    if(OrdersTotal() > 0) return;
-
    LookForNewSignal();
 }
 
@@ -279,7 +267,6 @@ void CheckPullbackAndEnter()
    double tp = GlobalVariableGet(GV_PB_TAKE_PROFIT);
    int patternCode = (int)GlobalVariableGet(GV_PB_PATTERN_TYPE);
    string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
-
    string comment = "";
    if(signalType == ORDER_TYPE_BUY) comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period);
    else comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period);
