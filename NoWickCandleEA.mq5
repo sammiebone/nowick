@@ -185,12 +185,13 @@ void LookForNewSignal()
 
       if(!EnableParadoxStrategy)
       {
+         string comment;
          if(isBearish)
          {
             double price = rates[1].high;
             double sl = price + StopLoss * _Point;
             double tp = price - TakeProfit3 * _Point;
-            string comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period);
+            comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period);
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = rates[1].close + (rates[1].open - rates[1].close) * (PullbackPercent/100.0);
@@ -210,7 +211,7 @@ void LookForNewSignal()
             double price = rates[1].low;
             double sl = price - StopLoss * _Point;
             double tp = price + TakeProfit3 * _Point;
-            string comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period);
+            comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period);
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = rates[1].open + (rates[1].close - rates[1].open) * (PullbackPercent/100.0);
@@ -289,8 +290,11 @@ void CheckPullbackAndEnter()
 
    if(entry_hit)
    {
-      if(signalType == ORDER_TYPE_BUY) m_trade.Buy(Lots, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_ASK), sl, tp, comment);
-      else m_trade.Sell(Lots, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_BID), sl, tp, comment);
+      MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
+      request.action = TRADE_ACTION_DEAL; request.type = signalType;
+      request.symbol = _Symbol; request.volume = Lots; request.price = SymbolInfoDouble(_Symbol, signalType == ORDER_TYPE_BUY ? SYMBOL_ASK : SYMBOL_BID);
+      request.sl = sl; request.tp = tp; request.comment = comment; request.magic = MagicNumber;
+      if(!m_trade.OrderSend(request, result)) { Print("MQL5 OrderSend error ", m_trade.ResultRetcode()); }
       ClearPendingPullback();
    }
 }

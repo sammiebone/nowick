@@ -44,14 +44,13 @@ input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
 #define GV_PB_STOP_LOSS   "PB_StopLoss_"   + Symbol()
 #define GV_PB_TAKE_PROFIT "PB_TakeProfit_" + Symbol()
 #define GV_PB_EXPIRY_TIME "PB_ExpiryTime_" + Symbol()
-#define GV_PB_PATTERN_TYPE "PB_PatternType_" + Symbol() // New GV for pattern type
+#define GV_PB_PATTERN_TYPE "PB_PatternType_" + Symbol()
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   //--- Check StopLoss and TakeProfit values against server's StopLevel
    double stopLevel = MarketInfo(Symbol(), MODE_STOPLEVEL);
    if(StopLoss > 0 && StopLoss < stopLevel) { Print("Error: StopLoss is too small."); return(INIT_FAILED); }
    if(TakeProfit1 > 0 && TakeProfit1 < stopLevel) { Print("Error: TakeProfit1 is too small."); return(INIT_FAILED); }
@@ -90,19 +89,11 @@ void ClearPendingPullback();
 void OnTick()
 {
    if(OrdersTotal() > 0) { ManageOpenTrades(); }
-
-   if(GlobalVariableGet(GV_PB_SIGNAL_TYPE) != 0)
-   {
-      CheckPullbackAndEnter();
-      return;
-   }
-
+   if(GlobalVariableGet(GV_PB_SIGNAL_TYPE) != 0) { CheckPullbackAndEnter(); return; }
    static datetime lastBarTime = 0;
    if(lastBarTime == Time[0]) return;
    lastBarTime = Time[0];
-
    if(DoesOrderExist()) return;
-
    LookForNewSignal();
 }
 
@@ -155,10 +146,10 @@ void LookForNewSignal()
    if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
    {
       string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
+      int ticket;
       if(!EnableParadoxStrategy)
       {
          string comment;
-         int ticket;
          if(isBearish)
          {
             double entry = NormalizeDouble(High[1], _Digits);
@@ -202,7 +193,7 @@ void LookForNewSignal()
             double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
             double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
             string comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
-            int ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+            ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
             if(ticket < 0) Print("Error sending buy stop: ", GetLastError());
          }
       }
