@@ -20,6 +20,10 @@ input int      BreakevenPips = 10;    // Pips to add for breakeven SL
 input double   VolumeMultiplier = 1.5; // Required volume increase over average
 input ulong    MagicNumber = 12345;   // Magic Number (ulong for MQL5)
 input bool     EnableParadoxStrategy = false; // Switch to Mean-Reversion strategy
+//--- Pattern Selection
+input bool     TradeFullMarubozu    = true; // Trade Marubozu with no wicks
+input bool     TradeOpeningMarubozu = true; // Trade Marubozu with flat open
+input bool     TradeClosingMarubozu = true; // Trade Marubozu with flat close
 
 //--- Global objects
 CTrade m_trade;
@@ -97,99 +101,90 @@ void OnTick()
 
    //--- Get the current SMA value
    double sma_buffer[1];
-   // Get a handle for the SMA indicator
    int sma_handle = iMA(_Symbol, _Period, SMAPeriod, 0, MODE_SMA, PRICE_CLOSE);
-   if(sma_handle == INVALID_HANDLE)
+   if(sma_handle == INVALID_HANDLE || CopyBuffer(sma_handle, 0, 0, 1, sma_buffer) < 1)
    {
-      Print("Error getting SMA indicator handle.");
-      return;
-   }
-   // Copy the latest value into our buffer
-   if(CopyBuffer(sma_handle, 0, 0, 1, sma_buffer) < 1)
-   {
-      Print("Error copying SMA buffer.");
+      Print("Error getting SMA value.");
       return;
    }
    double smaValue = sma_buffer[0];
 
    //--- Trend and Candle Logic
-   // Trend is determined by the current price (rates[0].close) vs the current SMA
    bool isBearishTrend = rates[0].close < smaValue;
    bool isBullishTrend = rates[0].close > smaValue;
 
-   // We analyze the most recently completed bar: rates[1]
-
    //--- Volume Confirmation
    long total_volume = 0;
-   // Average of 20 bars before the signal bar (from index 2 to 21)
-   for(int i = 2; i < 22; i++)
-   {
-      total_volume += rates[i].tick_volume;
-   }
+   for(int i = 2; i < 22; i++) { total_volume += rates[i].tick_volume; }
    double avgVolume = total_volume / 20.0;
    bool isVolumeConfirmed = rates[1].tick_volume > avgVolume * VolumeMultiplier;
 
-   if(!EnableParadoxStrategy)
+   //--- Enhanced Candle Identification & Order Placement ---
+   bool isBearish = rates[1].close < rates[1].open;
+   bool isBullish = rates[1].close > rates[1].open;
+
+   if((isBearish && isBearishTrend) || (isBullish && isBullishTrend))
    {
-      // --- STANDARD MOMENTUM STRATEGY ---
-      if(isBearishTrend)
+      // Define wick properties for the specific candle type
+      bool topIsFlat = (isBullish ? (rates[1].high - rates[1].close) < _Point : (rates[1].high - rates[1].open) < _Point);
+      bool bottomIsFlat = (isBullish ? (rates[1].open - rates[1].low) < _Point : (rates[1].close - rates[1].low) < _Point);
+
+      // Define Marubozu variations
+      bool isFull = topIsFlat && bottomIsFlat;
+      bool isOpening = (isBullish && bottomIsFlat && !topIsFlat) || (isBearish && topIsFlat && !bottomIsFlat);
+      bool isClosing = (isBullish && !bottomIsFlat && topIsFlat) || (isBearish && !topIsFlat && bottomIsFlat);
+
+      // Check if any selected pattern is found
+      bool patternFound = (TradeFullMarubozu && isFull) ||
+                          (TradeOpeningMarubozu && isOpening) ||
+                          (TradeClosingMarubozu && isClosing);
+
+      if(patternFound && isVolumeConfirmed)
       {
-         bool isBearishCandle = rates[1].close < rates[1].open;
-         bool noTopWick = (rates[1].high - rates[1].open) < _Point;
-         if(isBearishCandle && noTopWick && isVolumeConfirmed)
+         string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
+         if(!EnableParadoxStrategy)
          {
-            Print("MQL5: Bearish trend detected.");
-            Print("MQL5: Bearish no-wick candle found. Time: ", rates[1].time);
-            double price = rates[1].high;
-            double sl = price + StopLoss * _Point;
-            double tp = price - TakeProfit3 * _Point;
-            Print("MQL5: Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-            MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
-            request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
-            request.type = ORDER_TYPE_SELL_LIMIT; request.price = price; request.sl = sl; request.tp = tp;
-            request.comment = _Symbol + " No Wick Sell " + EnumToString(_Period); request.magic = MagicNumber;
-            if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
+            // --- STANDARD MOMENTUM STRATEGY ---
+            if (isBearish)
+            {
+               Print("MQL5: Bearish Momentum Signal Found. Type: ", patternType);
+               double price = rates[1].high;
+               double sl = price + StopLoss * _Point;
+               double tp = price - TakeProfit3 * _Point;
+               MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
+               request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
+               request.type = ORDER_TYPE_SELL_LIMIT; request.price = price; request.sl = sl; request.tp = tp;
+               request.comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period); request.magic = MagicNumber;
+               if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
+            }
+            if (isBullish)
+            {
+               Print("MQL5: Bullish Momentum Signal Found. Type: ", patternType);
+               double price = rates[1].low;
+               double sl = price - StopLoss * _Point;
+               double tp = price + TakeProfit3 * _Point;
+               MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
+               request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
+               request.type = ORDER_TYPE_BUY_LIMIT; request.price = price; request.sl = sl; request.tp = tp;
+               request.comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period); request.magic = MagicNumber;
+               if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
+            }
          }
-      }
-      if(isBullishTrend)
-      {
-         bool isBullishCandle = rates[1].close > rates[1].open;
-         bool noBottomWick = (rates[1].open - rates[1].low) < _Point;
-         if(isBullishCandle && noBottomWick && isVolumeConfirmed)
+         else
          {
-            Print("MQL5: Bullish trend detected.");
-            Print("MQL5: Bullish no-wick candle found. Time: ", rates[1].time);
-            double price = rates[1].low;
-            double sl = price - StopLoss * _Point;
-            double tp = price + TakeProfit3 * _Point;
-            Print("MQL5: Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-            MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
-            request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
-            request.type = ORDER_TYPE_BUY_LIMIT; request.price = price; request.sl = sl; request.tp = tp;
-            request.comment = _Symbol + " No Wick Buy " + EnumToString(_Period); request.magic = MagicNumber;
-            if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
-         }
-      }
-   }
-   else
-   {
-      // --- PARADOX (MEAN-REVERSION) STRATEGY ---
-      if(isBearishTrend)
-      {
-         bool isBearishCandle = rates[1].close < rates[1].open;
-         bool noTopWick = (rates[1].high - rates[1].open) < _Point;
-         if(isBearishCandle && noTopWick && isVolumeConfirmed)
-         {
-            Print("MQL5 Paradox Strategy: Bearish Marubozu detected. Preparing to buy on reversal.");
-            double price = rates[1].high;
-            double sl = rates[1].low - (SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point);
-            double tp = price + TakeProfit3 * _Point;
-            Print("MQL5: Placing Buy Stop. Price: ", price, " SL: ", sl, " TP: ", tp);
-            MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
-            request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
-            request.type = ORDER_TYPE_BUY_STOP; request.price = price; request.sl = sl; request.tp = tp;
-            request.comment = _Symbol + " Paradox Buy " + EnumToString(_Period); request.magic = MagicNumber;
-            if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
+            // --- PARADOX (MEAN-REVERSION) STRATEGY ---
+            if (isBearish)
+            {
+               Print("MQL5: Paradox Strategy Signal Found. Type: ", patternType);
+               double price = rates[1].high;
+               double sl = rates[1].low - (SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point);
+               double tp = price + TakeProfit3 * _Point;
+               MqlTradeRequest request; MqlTradeResult result; ZeroMemory(request); ZeroMemory(result);
+               request.action = TRADE_ACTION_PENDING; request.symbol = _Symbol; request.volume = Lots;
+               request.type = ORDER_TYPE_BUY_STOP; request.price = price; request.sl = sl; request.tp = tp;
+               request.comment = _Symbol + " Paradox Buy " + patternType + " " + EnumToString(_Period); request.magic = MagicNumber;
+               if(!m_trade.OrderSend(request, result)) { Print("MQL5: OrderSend error ", m_trade.ResultRetcode(), " - ", m_trade.ResultComment()); }
+            }
          }
       }
    }

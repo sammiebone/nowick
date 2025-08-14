@@ -19,6 +19,10 @@ input int      BreakevenPips = 10;    // Pips to add for breakeven SL
 input double   VolumeMultiplier = 1.5; // Required volume increase over average
 input int      MagicNumber = 12345;   // Magic Number
 input bool     EnableParadoxStrategy = false; // Switch to Mean-Reversion strategy
+//--- Pattern Selection
+input bool     TradeFullMarubozu    = true; // Trade Marubozu with no wicks
+input bool     TradeOpeningMarubozu = true; // Trade Marubozu with flat open
+input bool     TradeClosingMarubozu = true; // Trade Marubozu with flat close
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -116,65 +120,66 @@ void OnTick()
    double avgVolume = totalVolume / 20.0;
    bool isVolumeConfirmed = iVolume(NULL, 0, 1) > avgVolume * VolumeMultiplier;
 
-   //--- Candle Identification & Order Placement
-   if(!EnableParadoxStrategy)
+   //--- Enhanced Candle Identification & Order Placement ---
+   bool isBearish = Close[1] < Open[1];
+   bool isBullish = Close[1] > Open[1];
+
+   if((isBearish && isBearishTrend) || (isBullish && isBullishTrend))
    {
-      // --- STANDARD MOMENTUM STRATEGY ---
-      if (isBearishTrend)
+      // Define wick properties for the specific candle type
+      bool topIsFlat = (isBullish ? (High[1] - Close[1]) < _Point : (High[1] - Open[1]) < _Point);
+      bool bottomIsFlat = (isBullish ? (Open[1] - Low[1]) < _Point : (Close[1] - Low[1]) < _Point);
+
+      // Define Marubozu variations
+      bool isFull = topIsFlat && bottomIsFlat;
+      bool isOpening = (isBullish && bottomIsFlat && !topIsFlat) || (isBearish && topIsFlat && !bottomIsFlat);
+      bool isClosing = (isBullish && !bottomIsFlat && topIsFlat) || (isBearish && !topIsFlat && bottomIsFlat);
+
+      // Check if any selected pattern is found
+      bool patternFound = (TradeFullMarubozu && isFull) ||
+                          (TradeOpeningMarubozu && isOpening) ||
+                          (TradeClosingMarubozu && isClosing);
+
+      if(patternFound && isVolumeConfirmed)
       {
-         bool isBearishCandle = Close[1] < Open[1];
-         bool noTopWick = (High[1] - Open[1]) < _Point;
-         if (isBearishCandle && noTopWick && isVolumeConfirmed)
+         string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
+         if(!EnableParadoxStrategy)
          {
-            Print("Bearish trend detected.");
-            Print("Bearish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
-            double price = NormalizeDouble(High[1], _Digits);
-            double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
-            double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
-            Print("Placing Sell Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-            string comment = Symbol() + " No Wick Sell " + (string)Period();
-            int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrRed);
-            if(ticket < 0) { Print("Error sending sell limit order: ", GetLastError()); }
+            // --- STANDARD MOMENTUM STRATEGY ---
+            if (isBearish)
+            {
+               Print("Bearish Momentum Signal Found. Type: ", patternType);
+               double price = NormalizeDouble(High[1], _Digits);
+               double sl = NormalizeDouble(price + StopLoss * _Point, _Digits);
+               double tp = NormalizeDouble(price - TakeProfit3 * _Point, _Digits);
+               string comment = Symbol() + " Sell " + patternType + " " + (string)Period();
+               int ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrRed);
+               if(ticket < 0) { Print("Error sending sell limit: ", GetLastError()); }
+            }
+            if (isBullish)
+            {
+               Print("Bullish Momentum Signal Found. Type: ", patternType);
+               double price = NormalizeDouble(Low[1], _Digits);
+               double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
+               double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
+               string comment = Symbol() + " Buy " + patternType + " " + (string)Period();
+               int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+               if(ticket < 0) { Print("Error sending buy limit: ", GetLastError()); }
+            }
          }
-      }
-      if (isBullishTrend)
-      {
-         bool isBullishCandle = Close[1] > Open[1];
-         bool noBottomWick = (Open[1] - Low[1]) < _Point;
-         if (isBullishCandle && noBottomWick && isVolumeConfirmed)
+         else
          {
-            Print("Bullish trend detected.");
-            Print("Bullish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
-            double price = NormalizeDouble(Low[1], _Digits);
-            double sl = NormalizeDouble(price - StopLoss * _Point, _Digits);
-            double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
-            Print("Placing Buy Limit. Price: ", price, " SL: ", sl, " TP: ", tp);
-            string comment = Symbol() + " No Wick Buy " + (string)Period();
-            int ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
-            if(ticket < 0) { Print("Error sending buy limit order: ", GetLastError()); }
-         }
-      }
-   }
-   else
-   {
-      // --- PARADOX (MEAN-REVERSION) STRATEGY ---
-      // We only look for a bearish marubozu to place a BUY order, as per the document.
-      if (isBearishTrend)
-      {
-         bool isBearishCandle = Close[1] < Open[1];
-         bool noTopWick = (High[1] - Open[1]) < _Point; // Using the same "no wick" definition for now
-         if (isBearishCandle && noTopWick && isVolumeConfirmed)
-         {
-            Print("Paradox Strategy: Bearish Marubozu detected. Preparing to buy on reversal.");
-            // Place a Buy Stop order above the high of the candle.
-            double price = NormalizeDouble(High[1], _Digits);
-            // SL for this strategy should be below the low of the candle.
-            double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
-            double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits); // Using TP3 for the final target
-            Print("Placing Buy Stop. Price: ", price, " SL: ", sl, " TP: ", tp);
-            string comment = Symbol() + " Paradox Buy " + (string)Period();
-            int ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
-            if(ticket < 0) { Print("Error sending buy stop order: ", GetLastError()); }
+            // --- PARADOX (MEAN-REVERSION) STRATEGY ---
+            if (isBearish)
+            {
+               Print("Paradox Strategy Signal Found. Type: ", patternType);
+               double price = NormalizeDouble(High[1], _Digits);
+               double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
+               double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
+               string comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
+               int ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
+               if(ticket < 0) { Print("Error sending buy stop: ", GetLastError()); }
+            }
          }
       }
    }
