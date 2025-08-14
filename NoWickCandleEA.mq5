@@ -24,6 +24,11 @@ input bool     EnableParadoxStrategy = false; // Switch to Mean-Reversion strate
 input bool     TradeFullMarubozu    = true; // Trade Marubozu with no wicks
 input bool     TradeOpeningMarubozu = true; // Trade Marubozu with flat open
 input bool     TradeClosingMarubozu = true; // Trade Marubozu with flat close
+//--- RSI Filter
+input bool     UseRsiFilter         = true;  // Use RSI to filter signals
+input int      RsiPeriod            = 14;    // RSI Period
+input int      RsiOverbought        = 70;    // RSI Overbought Level
+input int      RsiOversold          = 30;    // RSI Oversold Level
 
 //--- Global objects
 CTrade m_trade;
@@ -139,7 +144,35 @@ void OnTick()
                           (TradeOpeningMarubozu && isOpening) ||
                           (TradeClosingMarubozu && isClosing);
 
-      if(patternFound && isVolumeConfirmed)
+      //--- RSI Filter ---
+      bool rsiFilterPassed = true;
+      if(UseRsiFilter)
+      {
+         double rsi_buffer[1];
+         int rsi_handle = iRSI(_Symbol, _Period, RsiPeriod, PRICE_CLOSE);
+         if(rsi_handle != INVALID_HANDLE && CopyBuffer(rsi_handle, 0, 1, 1, rsi_buffer) == 1)
+         {
+            double rsiValue = rsi_buffer[0];
+            if(isBullish || (EnableParadoxStrategy && isBearish)) // Any buy signal
+            {
+               if(rsiValue >= RsiOverbought)
+               {
+                  rsiFilterPassed = false;
+                  Print("MQL5 Signal ignored: RSI is overbought (", rsiValue, ")");
+               }
+            }
+            else if(isBearish && !EnableParadoxStrategy) // Sell signal
+            {
+               if(rsiValue <= RsiOversold)
+               {
+                  rsiFilterPassed = false;
+                  Print("MQL5 Signal ignored: RSI is oversold (", rsiValue, ")");
+               }
+            }
+         }
+      }
+
+      if(patternFound && isVolumeConfirmed && rsiFilterPassed)
       {
          string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
          if(!EnableParadoxStrategy)

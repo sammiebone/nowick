@@ -23,6 +23,11 @@ input bool     EnableParadoxStrategy = false; // Switch to Mean-Reversion strate
 input bool     TradeFullMarubozu    = true; // Trade Marubozu with no wicks
 input bool     TradeOpeningMarubozu = true; // Trade Marubozu with flat open
 input bool     TradeClosingMarubozu = true; // Trade Marubozu with flat close
+//--- RSI Filter
+input bool     UseRsiFilter         = true;  // Use RSI to filter signals
+input int      RsiPeriod            = 14;    // RSI Period
+input int      RsiOverbought        = 70;    // RSI Overbought Level
+input int      RsiOversold          = 30;    // RSI Oversold Level
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -140,7 +145,32 @@ void OnTick()
                           (TradeOpeningMarubozu && isOpening) ||
                           (TradeClosingMarubozu && isClosing);
 
-      if(patternFound && isVolumeConfirmed)
+      //--- RSI Filter ---
+      bool rsiFilterPassed = true; // Assume it passes if the filter is disabled
+      if(UseRsiFilter)
+      {
+         double rsiValue = iRSI(NULL, 0, RsiPeriod, PRICE_CLOSE, 1);
+         // For any buy signal (momentum bullish or paradox bearish)
+         if(isBullish || (EnableParadoxStrategy && isBearish))
+         {
+            if(rsiValue >= RsiOverbought)
+            {
+               rsiFilterPassed = false;
+               Print("Signal ignored: RSI is overbought (", rsiValue, ")");
+            }
+         }
+         // For a sell signal (only in standard momentum mode)
+         else if(isBearish && !EnableParadoxStrategy)
+         {
+            if(rsiValue <= RsiOversold)
+            {
+               rsiFilterPassed = false;
+               Print("Signal ignored: RSI is oversold (", rsiValue, ")");
+            }
+         }
+      }
+
+      if(patternFound && isVolumeConfirmed && rsiFilterPassed)
       {
          string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
          if(!EnableParadoxStrategy)
