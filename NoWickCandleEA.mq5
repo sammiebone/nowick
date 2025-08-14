@@ -45,7 +45,7 @@ input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
 #define GV_PB_STOP_LOSS   "PB_StopLoss_"   + _Symbol
 #define GV_PB_TAKE_PROFIT "PB_TakeProfit_" + _Symbol
 #define GV_PB_EXPIRY_TIME "PB_ExpiryTime_" + _Symbol
-#define GV_PB_COMMENT     "PB_Comment_"    + _Symbol
+#define GV_PB_PATTERN_TYPE "PB_PatternType_" + _Symbol
 
 //--- Global objects
 CTrade m_trade;
@@ -88,7 +88,7 @@ void OnDeinit(const int reason)
 void ManageOpenTrades();
 void LookForNewSignal();
 void CheckPullbackAndEnter();
-void SetPendingPullback(ENUM_ORDER_TYPE signalType, double entry, double sl, double tp, string comment);
+void SetPendingPullback(ENUM_ORDER_TYPE signalType, double entry, double sl, double tp, int patternCode);
 void ClearPendingPullback();
 
 //+------------------------------------------------------------------+
@@ -150,6 +150,9 @@ void LookForNewSignal()
    bool isClosing = (isBullish && !bottomIsFlat && topIsFlat) || (isBearish && !topIsFlat && bottomIsFlat);
    bool patternFound = (TradeFullMarubozu && isFull) || (TradeOpeningMarubozu && isOpening) || (TradeClosingMarubozu && isClosing);
 
+   int patternCode = 0;
+   if(isFull) patternCode = 1; else if(isOpening) patternCode = 2; else if(isClosing) patternCode = 3;
+
    bool rsiFilterPassed = true;
    if(UseRsiFilter)
    {
@@ -163,69 +166,63 @@ void LookForNewSignal()
       }
    }
 
-      //--- MACD Filter ---
-      bool macdFilterPassed = true;
-      if(UseMacdFilter)
-      {
-         double macd_main_buffer[1];
-         double macd_signal_buffer[1];
-         int macd_handle = iMACD(_Symbol, _Period, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE);
-
-         if(macd_handle != INVALID_HANDLE &&
-            CopyBuffer(macd_handle, 0, 1, 1, macd_main_buffer) == 1 &&
-            CopyBuffer(macd_handle, 1, 1, 1, macd_signal_buffer) == 1)
-         {
-            double macdMain = macd_main_buffer[0];
-            double macdSignal = macd_signal_buffer[0];
-
-            if(isBullish || (EnableParadoxStrategy && isBearish)) // Any buy signal
-            {
-               if(macdMain <= macdSignal) macdFilterPassed = false;
-            }
-            else if(isBearish && !EnableParadoxStrategy) // Sell signal
-            {
-               if(macdMain >= macdSignal) macdFilterPassed = false;
-            }
-         }
-      }
-
-      if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
+   bool macdFilterPassed = true;
+   if(UseMacdFilter)
    {
-      string patternType = (isFull ? "Full" : (isOpening ? "Opening" : "Closing"));
+      double macd_main[1], macd_signal[1];
+      int macd_handle = iMACD(_Symbol, _Period, MacdFastEma, MacdSlowEma, MacdSignalSma, PRICE_CLOSE);
+      if(macd_handle != INVALID_HANDLE && CopyBuffer(macd_handle, 0, 1, 1, macd_main) == 1 && CopyBuffer(macd_handle, 1, 1, 1, macd_signal) == 1)
+      {
+         if(isBullish || (EnableParadoxStrategy && isBearish)) { if(macd_main[0] <= macd_signal[0]) macdFilterPassed = false; }
+         else if(isBearish && !EnableParadoxStrategy) { if(macd_main[0] >= macd_signal[0]) macdFilterPassed = false; }
+      }
+   }
+
+   if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
+   {
+      MqlTradeRequest request; MqlTradeResult result;
+      string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
+
       if(!EnableParadoxStrategy)
       {
          if(isBearish)
          {
-            double entry = rates[1].high;
-            double sl = entry + StopLoss * _Point;
-            double tp = entry - TakeProfit3 * _Point;
+            double price = rates[1].high;
+            double sl = price + StopLoss * _Point;
+            double tp = price - TakeProfit3 * _Point;
             string comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period);
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = rates[1].close + (rates[1].open - rates[1].close) * (PullbackPercent/100.0);
-               SetPendingPullback(ORDER_TYPE_SELL, pullbackEntry, sl, tp, comment);
+               SetPendingPullback(ORDER_TYPE_SELL, pullbackEntry, sl, tp, patternCode);
             }
             else
             {
-               m_trade.request.comment = comment;
-               m_trade.SellLimit(Lots, entry, _Symbol, sl, tp);
+               ZeroMemory(request); ZeroMemory(result);
+               request.action = TRADE_ACTION_PENDING; request.type = ORDER_TYPE_SELL_LIMIT;
+               request.symbol = _Symbol; request.volume = Lots; request.price = price;
+               request.sl = sl; request.tp = tp; request.comment = comment; request.magic = MagicNumber;
+               if(!m_trade.OrderSend(request, result)) { Print("MQL5 OrderSend error ", m_trade.ResultRetcode()); }
             }
          }
          if(isBullish)
          {
-            double entry = rates[1].low;
-            double sl = entry - StopLoss * _Point;
-            double tp = entry + TakeProfit3 * _Point;
+            double price = rates[1].low;
+            double sl = price - StopLoss * _Point;
+            double tp = price + TakeProfit3 * _Point;
             string comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period);
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = rates[1].open + (rates[1].close - rates[1].open) * (PullbackPercent/100.0);
-               SetPendingPullback(ORDER_TYPE_BUY, pullbackEntry, sl, tp, comment);
+               SetPendingPullback(ORDER_TYPE_BUY, pullbackEntry, sl, tp, patternCode);
             }
             else
             {
-               m_trade.request.comment = comment;
-               m_trade.BuyLimit(Lots, entry, _Symbol, sl, tp);
+               ZeroMemory(request); ZeroMemory(result);
+               request.action = TRADE_ACTION_PENDING; request.type = ORDER_TYPE_BUY_LIMIT;
+               request.symbol = _Symbol; request.volume = Lots; request.price = price;
+               request.sl = sl; request.tp = tp; request.comment = comment; request.magic = MagicNumber;
+               if(!m_trade.OrderSend(request, result)) { Print("MQL5 OrderSend error ", m_trade.ResultRetcode()); }
             }
          }
       }
@@ -237,22 +234,24 @@ void LookForNewSignal()
             double sl = rates[1].low - (SymbolInfoInteger(_Symbol, SYMBOL_SPREAD) * _Point);
             double tp = price + TakeProfit3 * _Point;
             string comment = _Symbol + " Paradox Buy " + patternType + " " + EnumToString(_Period);
-            m_trade.request.comment = comment;
-            m_trade.BuyStop(Lots, price, _Symbol, sl, tp);
+            ZeroMemory(request); ZeroMemory(result);
+            request.action = TRADE_ACTION_PENDING; request.type = ORDER_TYPE_BUY_STOP;
+            request.symbol = _Symbol; request.volume = Lots; request.price = price;
+            request.sl = sl; request.tp = tp; request.comment = comment; request.magic = MagicNumber;
+            if(!m_trade.OrderSend(request, result)) { Print("MQL5 OrderSend error ", m_trade.ResultRetcode()); }
          }
       }
    }
 }
 
-void SetPendingPullback(ENUM_ORDER_TYPE signalType, double entry, double sl, double tp, string comment)
+void SetPendingPullback(ENUM_ORDER_TYPE signalType, double entry, double sl, double tp, int patternCode)
 {
-   Print("MQL5: Setting pending pullback signal. Type: ", EnumToString(signalType), " Entry: ", entry);
    GlobalVariableSet(GV_PB_SIGNAL_TYPE, signalType);
    GlobalVariableSet(GV_PB_ENTRY_PRICE, entry);
    GlobalVariableSet(GV_PB_STOP_LOSS, sl);
    GlobalVariableSet(GV_PB_TAKE_PROFIT, tp);
    GlobalVariableSet(GV_PB_EXPIRY_TIME, TimeCurrent() + PullbackExpiryBars * PeriodSeconds());
-   GlobalVariableSet(GV_PB_COMMENT, comment);
+   GlobalVariableSet(GV_PB_PATTERN_TYPE, patternCode);
 }
 
 void ClearPendingPullback()
@@ -262,14 +261,13 @@ void ClearPendingPullback()
    GlobalVariableDel(GV_PB_STOP_LOSS);
    GlobalVariableDel(GV_PB_TAKE_PROFIT);
    GlobalVariableDel(GV_PB_EXPIRY_TIME);
-   GlobalVariableDel(GV_PB_COMMENT);
+   GlobalVariableDel(GV_PB_PATTERN_TYPE);
 }
 
 void CheckPullbackAndEnter()
 {
    if(TimeCurrent() > GlobalVariableGet(GV_PB_EXPIRY_TIME))
    {
-      Print("MQL5: Pullback signal expired.");
       ClearPendingPullback();
       return;
    }
@@ -278,7 +276,12 @@ void CheckPullbackAndEnter()
    double entryPrice = GlobalVariableGet(GV_PB_ENTRY_PRICE);
    double sl = GlobalVariableGet(GV_PB_STOP_LOSS);
    double tp = GlobalVariableGet(GV_PB_TAKE_PROFIT);
-   string comment = GlobalVariableGet(GV_PB_COMMENT);
+   int patternCode = (int)GlobalVariableGet(GV_PB_PATTERN_TYPE);
+   string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
+
+   string comment = "";
+   if(signalType == ORDER_TYPE_BUY) comment = _Symbol + " Buy " + patternType + " " + EnumToString(_Period);
+   else comment = _Symbol + " Sell " + patternType + " " + EnumToString(_Period);
 
    bool entry_hit = false;
    if(signalType == ORDER_TYPE_BUY && SymbolInfoDouble(_Symbol, SYMBOL_ASK) <= entryPrice) entry_hit = true;
@@ -286,7 +289,6 @@ void CheckPullbackAndEnter()
 
    if(entry_hit)
    {
-      Print("MGL5: Pullback entry price hit. Placing market order.");
       if(signalType == ORDER_TYPE_BUY) m_trade.Buy(Lots, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_ASK), sl, tp, comment);
       else m_trade.Sell(Lots, _Symbol, SymbolInfoDouble(_Symbol, SYMBOL_BID), sl, tp, comment);
       ClearPendingPullback();
