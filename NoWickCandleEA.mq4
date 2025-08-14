@@ -107,7 +107,7 @@ void OnTick()
    bool isBullishTrend = Close[0] > smaValue;
 
    //--- Volume Confirmation
-   double totalVolume = 0;
+   long totalVolume = 0;
    for(int i = 2; i < 22; i++) // Average of 20 bars before the signal bar
    {
       totalVolume += iVolume(NULL, 0, i);
