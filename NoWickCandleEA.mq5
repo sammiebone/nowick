@@ -85,11 +85,11 @@ void OnTick()
       return;
    }
 
-   //--- Get the last 2 bars rates
-   MqlRates rates[2];
-   if(CopyRates(_Symbol, _Period, 0, 2, rates) < 2)
+   //--- Get rates data for analysis
+   MqlRates rates[22]; // Get enough data for 20-bar volume average
+   if(CopyRates(_Symbol, _Period, 0, 22, rates) < 22)
    {
-      Print("Error copying rates, not enough bars.");
+      Print("Error copying rates, not enough bars for volume MA.");
       return;
    }
    // MQL5 default indexing: rates[0] is the current bar, rates[1] is the previous bar.
@@ -119,14 +119,13 @@ void OnTick()
    // We analyze the most recently completed bar: rates[1]
 
    //--- Volume Confirmation
-   int vol_ma_handle = iMA(_Symbol, _Period, 20, 0, MODE_SMA, APPLIED_VOLUME);
-   double vol_ma_buffer[1];
-   if(vol_ma_handle == INVALID_HANDLE || CopyBuffer(vol_ma_handle, 0, 2, 1, vol_ma_buffer) < 1)
+   long total_volume = 0;
+   // Average of 20 bars before the signal bar (from index 2 to 21)
+   for(int i = 2; i < 22; i++)
    {
-      Print("Error getting average volume.");
-      return;
+      total_volume += rates[i].tick_volume;
    }
-   double avgVolume = vol_ma_buffer[0];
+   double avgVolume = total_volume / 20.0;
    bool isVolumeConfirmed = rates[1].tick_volume > avgVolume * VolumeMultiplier;
 
    // Bearish case:
