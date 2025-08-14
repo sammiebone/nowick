@@ -17,6 +17,7 @@ input int      TakeProfit1 = 50;      // Take Profit 1 in pips
 input int      TakeProfit2 = 100;     // Take Profit 2 in pips
 input int      TakeProfit3 = 150;     // Take Profit 3 in pips
 input int      BreakevenPips = 10;    // Pips to add for breakeven SL
+input double   VolumeMultiplier = 1.5; // Required volume increase over average
 input ulong    MagicNumber = 12345;   // Magic Number (ulong for MQL5)
 
 //--- Global objects
@@ -117,6 +118,17 @@ void OnTick()
 
    // We analyze the most recently completed bar: rates[1]
 
+   //--- Volume Confirmation
+   int vol_ma_handle = iMA(_Symbol, _Period, 20, 0, MODE_SMA, APPLIED_VOLUME);
+   double vol_ma_buffer[1];
+   if(vol_ma_handle == INVALID_HANDLE || CopyBuffer(vol_ma_handle, 0, 2, 1, vol_ma_buffer) < 1)
+   {
+      Print("Error getting average volume.");
+      return;
+   }
+   double avgVolume = vol_ma_buffer[0];
+   bool isVolumeConfirmed = rates[1].tick_volume > avgVolume * VolumeMultiplier;
+
    // Bearish case:
    if(isBearishTrend)
    {
@@ -124,6 +136,11 @@ void OnTick()
       bool noTopWick = (rates[1].high - rates[1].open) < _Point;
       if(isBearishCandle && noTopWick)
       {
+         if(!isVolumeConfirmed)
+         {
+            Print("MQL5: Bearish signal found, but volume is too low. Vol: ", rates[1].tick_volume, " AvgVol: ", avgVolume);
+            return;
+         }
          Print("MQL5: Bearish trend detected.");
          Print("MQL5: Bearish no-wick candle found. Time: ", rates[1].time);
 
@@ -162,6 +179,11 @@ void OnTick()
       bool noBottomWick = (rates[1].open - rates[1].low) < _Point;
       if(isBullishCandle && noBottomWick)
       {
+         if(!isVolumeConfirmed)
+         {
+            Print("MQL5: Bullish signal found, but volume is too low. Vol: ", rates[1].tick_volume, " AvgVol: ", avgVolume);
+            return;
+         }
          Print("MQL5: Bullish trend detected.");
          Print("MQL5: Bullish no-wick candle found. Time: ", rates[1].time);
 

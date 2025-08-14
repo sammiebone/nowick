@@ -16,6 +16,7 @@ input int      TakeProfit1 = 50;      // Take Profit 1 in pips
 input int      TakeProfit2 = 100;     // Take Profit 2 in pips
 input int      TakeProfit3 = 150;     // Take Profit 3 in pips
 input int      BreakevenPips = 10;    // Pips to add for breakeven SL
+input double   VolumeMultiplier = 1.5; // Required volume increase over average
 input int      MagicNumber = 12345;   // Magic Number
 
 //+------------------------------------------------------------------+
@@ -105,6 +106,15 @@ void OnTick()
    bool isBearishTrend = Close[0] < smaValue;
    bool isBullishTrend = Close[0] > smaValue;
 
+   //--- Volume Confirmation
+   double totalVolume = 0;
+   for(int i = 2; i < 22; i++) // Average of 20 bars before the signal bar
+   {
+      totalVolume += iVolume(NULL, 0, i);
+   }
+   double avgVolume = totalVolume / 20.0;
+   bool isVolumeConfirmed = iVolume(NULL, 0, 1) > avgVolume * VolumeMultiplier;
+
    //--- Candle Identification & Order Placement
    // We analyze the most recently closed candle (index 1)
 
@@ -117,6 +127,11 @@ void OnTick()
 
       if (isBearishCandle && noTopWick)
       {
+         if(!isVolumeConfirmed)
+         {
+            Print("Bearish signal found, but volume is too low. Vol: ", iVolume(NULL, 0, 1), " AvgVol: ", avgVolume);
+            return;
+         }
          Print("Bearish trend detected.");
          Print("Bearish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
          //--- Place Sell Limit Order at the top of the candle
@@ -142,6 +157,11 @@ void OnTick()
 
       if (isBullishCandle && noBottomWick)
       {
+         if(!isVolumeConfirmed)
+         {
+            Print("Bullish signal found, but volume is too low. Vol: ", iVolume(NULL, 0, 1), " AvgVol: ", avgVolume);
+            return;
+         }
          Print("Bullish trend detected.");
          Print("Bullish no-wick candle found. Time: ", Time[1], " O:", Open[1], " H:", High[1], " L:", Low[1], " C:", Close[1]);
          //--- Place Buy Limit Order at the bottom of the candle
