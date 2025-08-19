@@ -9,34 +9,34 @@
 #property strict
 
 //--- input parameters
-input int      SMAPeriod   = 50;      // SMA Period
-input double   Lots        = 1.0;     // Lots size
-input int      StopLoss    = 100;     // Stop Loss in pips
-input int      TakeProfit1 = 50;      // Take Profit 1 in pips
-input int      TakeProfit2 = 100;     // Take Profit 2 in pips
-input int      TakeProfit3 = 150;     // Take Profit 3 in pips
-input int      BreakevenPips = 10;    // Pips to add for breakeven SL
-input double   VolumeMultiplier = 1.5; // Required volume increase over average
-input int      MagicNumber = 12345;   // Magic Number
-input bool     EnableParadoxStrategy = false; // Switch to Mean-Reversion strategy
+input int      SMAPeriod   = 50;
+input double   Lots        = 1.0;
+input int      StopLoss    = 100;
+input int      TakeProfit1 = 50;
+input int      TakeProfit2 = 100;
+input int      TakeProfit3 = 150;
+input int      BreakevenPips = 10;
+input double   VolumeMultiplier = 1.5;
+input int      MagicNumber = 12345;
+input bool     EnableParadoxStrategy = false;
 //--- Pattern Selection
-input bool     TradeFullMarubozu    = true; // Trade Marubozu with no wicks
-input bool     TradeOpeningMarubozu = true; // Trade Marubozu with flat open
-input bool     TradeClosingMarubozu = true; // Trade Marubozu with flat close
+input bool     TradeFullMarubozu    = true;
+input bool     TradeOpeningMarubozu = true;
+input bool     TradeClosingMarubozu = true;
 //--- RSI Filter
-input bool     UseRsiFilter         = true;  // Use RSI to filter signals
-input int      RsiPeriod            = 14;    // RSI Period
-input int      RsiOverbought        = 70;    // RSI Overbought Level
-input int      RsiOversold          = 30;    // RSI Oversold Level
+input bool     UseRsiFilter         = true;
+input int      RsiPeriod            = 14;
+input int      RsiOverbought        = 70;
+input int      RsiOversold          = 30;
 //--- Pullback Entry
-input bool     WaitForPullbackEntry = false; // Wait for a pullback before entering
-input double   PullbackPercent      = 50.0;  // Pullback percent (0-100)
-input int      PullbackExpiryBars   = 3;     // Bars to wait for a pullback
+input bool     WaitForPullbackEntry = false;
+input double   PullbackPercent      = 50.0;
+input int      PullbackExpiryBars   = 3;
 //--- MACD Filter
-input bool     UseMacdFilter        = true;  // Use MACD to filter signals
-input int      MacdFastEma          = 12;    // MACD Fast EMA Period
-input int      MacdSlowEma          = 26;    // MACD Slow EMA Period
-input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
+input bool     UseMacdFilter        = true;
+input int      MacdFastEma          = 12;
+input int      MacdSlowEma          = 26;
+input int      MacdSignalSma        = 9;
 
 //--- Global Variable Name definitions for Pullback State
 #define GV_PB_SIGNAL_TYPE "PB_SignalType_" + Symbol()
@@ -46,8 +46,15 @@ input int      MacdSignalSma        = 9;     // MACD Signal SMA Period
 #define GV_PB_EXPIRY_TIME "PB_ExpiryTime_" + Symbol()
 #define GV_PB_PATTERN_TYPE "PB_PatternType_" + Symbol()
 
-//+------------------------------------------------------------------+
-//| Expert initialization function                                   |
+// Forward declarations
+bool DoesOrderExist();
+void ManageOpenTrades();
+void LookForNewSignal();
+void CheckPullbackAndEnter();
+void SetPendingPullback(int signalType, double entry, double sl, double tp, int patternCode);
+void ClearPendingPullback();
+int PlaceSafeOrder(int type, double price, double sl, double tp, string patternType, string tradeType);
+
 //+------------------------------------------------------------------+
 int OnInit()
 {
@@ -60,9 +67,6 @@ int OnInit()
    if(PullbackPercent < 0 || PullbackPercent > 100) { Print("Error: PullbackPercent must be between 0 and 100."); return(INIT_FAILED); }
    return(INIT_SUCCEEDED);
 }
-
-//+------------------------------------------------------------------+
-//| Expert deinitialization function                                 |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
@@ -74,17 +78,6 @@ void OnDeinit(const int reason)
    }
    ClearPendingPullback();
 }
-
-// Forward declarations
-bool DoesOrderExist();
-void ManageOpenTrades();
-void LookForNewSignal();
-void CheckPullbackAndEnter();
-void SetPendingPullback(int signalType, double entry, double sl, double tp, int patternCode);
-void ClearPendingPullback();
-
-//+------------------------------------------------------------------+
-//| Expert tick function                                             |
 //+------------------------------------------------------------------+
 void OnTick()
 {
@@ -96,9 +89,6 @@ void OnTick()
    if(DoesOrderExist()) return;
    LookForNewSignal();
 }
-
-//+------------------------------------------------------------------+
-//| Looks for a new trade signal                                     |
 //+------------------------------------------------------------------+
 void LookForNewSignal()
 {
@@ -138,8 +128,6 @@ void LookForNewSignal()
    if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
    {
       string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
-      int ticket;
-      string comment;
       if(!EnableParadoxStrategy)
       {
          if(isBearish)
@@ -147,34 +135,24 @@ void LookForNewSignal()
             double entry = NormalizeDouble(High[1], _Digits);
             double sl = NormalizeDouble(entry + StopLoss * _Point, _Digits);
             double tp = NormalizeDouble(entry - TakeProfit3 * _Point, _Digits);
-            comment = Symbol() + " Sell " + patternType + " " + (string)Period();
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = NormalizeDouble(Close[1] + (Open[1] - Close[1]) * (PullbackPercent/100.0), _Digits);
                SetPendingPullback(OP_SELL, pullbackEntry, sl, tp, patternCode);
             }
-            else
-            {
-               ticket = OrderSend(Symbol(), OP_SELLLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrRed);
-               if(ticket < 0) Print("Error sending sell limit: ", GetLastError());
-            }
+            else { PlaceSafeOrder(OP_SELLLIMIT, entry, sl, tp, patternType, "Sell"); }
          }
          if(isBullish)
          {
             double entry = NormalizeDouble(Low[1], _Digits);
             double sl = NormalizeDouble(entry - StopLoss * _Point, _Digits);
             double tp = NormalizeDouble(entry + TakeProfit3 * _Point, _Digits);
-            comment = Symbol() + " Buy " + patternType + " " + (string)Period();
             if(WaitForPullbackEntry)
             {
                double pullbackEntry = NormalizeDouble(Open[1] + (Close[1] - Open[1]) * (PullbackPercent/100.0), _Digits);
                SetPendingPullback(OP_BUY, pullbackEntry, sl, tp, patternCode);
             }
-            else
-            {
-               ticket = OrderSend(Symbol(), OP_BUYLIMIT, Lots, entry, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
-               if(ticket < 0) Print("Error sending buy limit: ", GetLastError());
-            }
+            else { PlaceSafeOrder(OP_BUYLIMIT, entry, sl, tp, patternType, "Buy"); }
          }
       }
       else
@@ -184,14 +162,12 @@ void LookForNewSignal()
             double price = NormalizeDouble(High[1], _Digits);
             double sl = NormalizeDouble(Low[1] - (SymbolInfoInteger(Symbol(), SYMBOL_SPREAD) * _Point), _Digits);
             double tp = NormalizeDouble(price + TakeProfit3 * _Point, _Digits);
-            comment = Symbol() + " Paradox Buy " + patternType + " " + (string)Period();
-            ticket = OrderSend(Symbol(), OP_BUYSTOP, Lots, price, 3, sl, tp, comment, MagicNumber, 0, clrBlue);
-            if(ticket < 0) Print("Error sending buy stop: ", GetLastError());
+            PlaceSafeOrder(OP_BUYSTOP, price, sl, tp, patternType, "Paradox Buy");
          }
       }
    }
 }
-
+//+------------------------------------------------------------------+
 void SetPendingPullback(int signalType, double entry, double sl, double tp, int patternCode)
 {
    GlobalVariableSet(GV_PB_SIGNAL_TYPE, signalType);
@@ -201,7 +177,7 @@ void SetPendingPullback(int signalType, double entry, double sl, double tp, int 
    GlobalVariableSet(GV_PB_EXPIRY_TIME, TimeCurrent() + PullbackExpiryBars * Period()*60);
    GlobalVariableSet(GV_PB_PATTERN_TYPE, patternCode);
 }
-
+//+------------------------------------------------------------------+
 void ClearPendingPullback()
 {
    GlobalVariableDel(GV_PB_SIGNAL_TYPE);
@@ -211,7 +187,7 @@ void ClearPendingPullback()
    GlobalVariableDel(GV_PB_EXPIRY_TIME);
    GlobalVariableDel(GV_PB_PATTERN_TYPE);
 }
-
+//+------------------------------------------------------------------+
 void CheckPullbackAndEnter()
 {
    if(TimeCurrent() > GlobalVariableGet(GV_PB_EXPIRY_TIME))
@@ -225,20 +201,32 @@ void CheckPullbackAndEnter()
    double tp = GlobalVariableGet(GV_PB_TAKE_PROFIT);
    int patternCode = (int)GlobalVariableGet(GV_PB_PATTERN_TYPE);
    string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
-   string comment = "";
-   if(signalType == OP_BUY) comment = Symbol() + " Buy " + patternType + " " + (string)Period();
-   else comment = Symbol() + " Sell " + patternType + " " + (string)Period();
+   string tradeType = (signalType == OP_BUY ? "Buy" : "Sell");
    bool entry_hit = false;
    if(signalType == OP_BUY && Ask <= entryPrice) entry_hit = true;
    if(signalType == OP_SELL && Bid >= entryPrice) entry_hit = true;
    if(entry_hit)
    {
-      int ticket = OrderSend(Symbol(), signalType, Lots, (signalType == OP_BUY ? Ask : Bid), 3, sl, tp, comment, MagicNumber, 0, (signalType == OP_BUY ? clrBlue : clrRed));
-      if(ticket < 0) Print("Error sending pullback market order: ", GetLastError());
+      double price = (signalType == OP_BUY ? Ask : Bid);
+      PlaceSafeOrder(signalType, price, sl, tp, patternType, tradeType);
       ClearPendingPullback();
    }
 }
-
+//+------------------------------------------------------------------+
+int PlaceSafeOrder(int type, double price, double sl, double tp, string patternType, string tradeType)
+{
+   if(sl == 0 || tp == 0)
+   {
+      Print("CRITICAL ERROR: StopLoss or TakeProfit is zero. Order placement aborted.");
+      return -1;
+   }
+   string comment = "NoWickCandleEA " + Symbol() + " " + tradeType + " " + patternType + " " + (string)Period();
+   int ticket = OrderSend(Symbol(), type, Lots, price, 3, sl, tp, comment, MagicNumber, 0, (type == OP_BUY || type == OP_BUYSTOP ? clrBlue : clrRed));
+   if(ticket < 0) { Print("OrderSend failed with error #", GetLastError()); }
+   else { Print("Order successfully placed. Ticket #", ticket); }
+   return ticket;
+}
+//+------------------------------------------------------------------+
 bool DoesOrderExist()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
@@ -250,7 +238,7 @@ bool DoesOrderExist()
    }
    return(false);
 }
-
+//+------------------------------------------------------------------+
 void ManageOpenTrades()
 {
    for(int i = OrdersTotal() - 1; i >= 0; i--)
