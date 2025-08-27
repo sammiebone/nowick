@@ -10,7 +10,7 @@
 
 //--- input parameters
 input int      SMAPeriod   = 50;
-input double   Lots        = 1.0;
+input double   Lots        = 3.0;
 input int      StopLoss    = 100;
 input int      TakeProfit1 = 50;
 input int      TakeProfit2 = 100;
