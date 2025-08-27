@@ -139,6 +139,7 @@ void LookForNewSignal()
    if(patternFound && isVolumeConfirmed && rsiFilterPassed && macdFilterPassed)
    {
       MqlTradeRequest request;
+      ZeroMemory(request); // Zero out the request structure before use.
       string patternType = (patternCode == 1 ? "Full" : (patternCode == 2 ? "Opening" : "Closing"));
       if(!EnableParadoxStrategy)
       {
@@ -219,6 +220,7 @@ void CheckPullbackAndEnter()
    if(entry_hit)
    {
       MqlTradeRequest request;
+      ZeroMemory(request); // Zero out the request structure before use.
       request.type = signalType;
       request.price = SymbolInfoDouble(_Symbol, signalType == ORDER_TYPE_BUY ? SYMBOL_ASK : SYMBOL_BID);
       request.sl = sl;
@@ -236,8 +238,11 @@ bool PlaceSafeRequest(MqlTradeRequest &request, string patternType, string trade
       return false;
    }
    MqlTradeResult result;
-   ZeroMemory(request);
    ZeroMemory(result);
+
+   // CRITICAL: Do NOT ZeroMemory the request here. It must be done by the caller.
+   // This line was erasing the SL/TP that was set by the calling function.
+
    request.symbol = _Symbol;
    request.volume = Lots;
    request.magic = MagicNumber;
